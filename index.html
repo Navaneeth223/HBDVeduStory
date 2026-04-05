@@ -1312,6 +1312,28 @@ canvas#particle-canvas {
   position: absolute; top:0; left:0; pointer-events:none; z-index: 50;
 }
 
+#about-modal {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--dialogue-bg);
+  border: 2px solid var(--outfit-gold);
+  color: var(--text-main);
+  padding: 15px;
+  width: 80%;
+  text-align: center;
+  z-index: 300;
+  display: none;
+  pointer-events: auto;
+}
+#about-modal h2 { font-family: var(--font-pixel); font-size: 10px; color: var(--outfit-gold); }
+#about-modal p { font-size: 15px; margin: 10px 0; }
+.close-btn { 
+  background: var(--choice-bg); border: 1px solid var(--outfit-rose);
+  color: #fff; font-family: var(--font-pixel); font-size: 8px;
+  padding: 8px 12px; cursor: pointer; margin-top: 10px;
+}
+
 @keyframes bunnyIdle {
   0%, 100% { transform: translateY(0px); }
   50% { transform: translateY(-4px); }
@@ -1345,8 +1367,7 @@ canvas#particle-canvas {
 
       <div id="ui-layer">
         <div id="hud">
-          <span id="bgm-label">♪ none</span>
-          <span id="mute-btn" style="cursor:pointer">♪ ON</span>
+          <span id="mute-btn" style="cursor:pointer; background:rgba(0,0,0,0.5); padding:3px 6px; border-radius:4px;">♪ Music: ON</span>
         </div>
         
         <div id="chapter-title">ACT 1 - THE MORNING</div>
@@ -1367,6 +1388,15 @@ canvas#particle-canvas {
         </div>
       </div>
 
+      </div>
+
+      <div id="about-modal">
+        <h2>✦ ABOUT ✦</h2>
+        <p>A Day in Vedu's World<br>Created with 💛 by Navi ettan.</p>
+        <p>A tiny pixel experience for a special birthday.</p>
+        <button class="close-btn" id="btn-close-about">[ CLOSE ]</button>
+      </div>
+
       <div id="transition-overlay"></div>
     </div>
   </div>
@@ -1384,9 +1414,7 @@ const state = {
 // AUDIO
 const AudioEngine = {
   ctx: null,
-  bgmTimeout: null,
-  currentBGMName: null,
-  bgmOscillators: [],
+  bgAudio: null,
   init() {
     if (!this.ctx) {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1394,8 +1422,22 @@ const AudioEngine = {
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
+    if (!this.bgAudio) {
+      this.bgAudio = new Audio('Gentle_Breeze_Vedika.mp3');
+      this.bgAudio.loop = true;
+      this.bgAudio.volume = 0.3;
+      this.bgAudio.onerror = () => {
+        if (!this.bgAudio.src.includes('wikimedia')) {
+          this.bgAudio.src = 'https://upload.wikimedia.org/wikipedia/commons/3/36/Gymnopedie_No_1.ogg';
+          if (state.sfxEnabled) this.bgAudio.play().catch(()=>{});
+        }
+      };
+      if (state.sfxEnabled && scenes[state.currentScene].bgm) {
+        this.bgAudio.play().catch(()=>{});
+      }
+    }
   },
-  playMelody(notes, isBgm = false) {
+  playMelody(notes) {
     if (!this.ctx) return 0;
     let time = this.ctx.currentTime;
     let totalDur = 0;
@@ -1406,14 +1448,12 @@ const AudioEngine = {
       const gain = this.ctx.createGain();
       osc.connect(gain);
       gain.connect(this.ctx.destination);
-      osc.type = isBgm ? 'triangle' : 'square';
+      osc.type = 'square';
       osc.frequency.value = freq;
-      const vol = isBgm ? 0.012 : 0.04;
-      gain.gain.setValueAtTime(vol, time);
+      gain.gain.setValueAtTime(0.04, time);
       gain.gain.exponentialRampToValueAtTime(0.001, time + dur - 0.01);
       osc.start(time);
       osc.stop(time + dur);
-      if (isBgm) this.bgmOscillators.push(osc);
       time += dur;
     });
     return totalDur;
@@ -1425,38 +1465,25 @@ const AudioEngine = {
       click:    [[880, 0.02]],
       sparkle:  [[1568, 0.05], [1760, 0.05], [2093, 0.1]],
     };
-    if (sfx[type]) this.playMelody(sfx[type], false);
+    if (sfx[type]) this.playMelody(sfx[type]);
   },
   setBGM(name) {
-    if (this.currentBGMName === name) return;
-    this.currentBGMName = name;
-    this.stopBGM();
     if (name && state.sfxEnabled) {
-      this.loopBGM(name);
+      if (this.bgAudio && this.bgAudio.paused) {
+        this.bgAudio.play().catch(()=>{});
+      }
+    } else if (!name) {
+      if (this.bgAudio) this.bgAudio.pause();
     }
-  },
-  loopBGM(name) {
-    if (this.currentBGMName !== name || !state.sfxEnabled) return;
-    const notes = BGM[name];
-    if (!notes) return;
-    const dur = this.playMelody(notes, true);
-    this.bgmTimeout = setTimeout(() => {
-      this.bgmOscillators = [];
-      this.loopBGM(name);
-    }, dur * 1000);
-  },
-  stopBGM() {
-    clearTimeout(this.bgmTimeout);
-    this.bgmTimeout = null;
-    this.bgmOscillators.forEach(o => { try{o.stop()}catch(e){} });
-    this.bgmOscillators = [];
   },
   toggleMute() {
     state.sfxEnabled = !state.sfxEnabled;
     if (!state.sfxEnabled) {
-      this.stopBGM();
-    } else if (this.currentBGMName) {
-      this.loopBGM(this.currentBGMName);
+      if (this.bgAudio) this.bgAudio.pause();
+    } else {
+      if (this.bgAudio && scenes[state.currentScene].bgm) {
+        this.bgAudio.play().catch(()=>{});
+      }
     }
   }
 };
@@ -1989,10 +2016,8 @@ function goToScene(sceneId) {
     updateCharacter('char-right', scene.charRight);
     
     if (scene.bgm) {
-      document.getElementById('bgm-label').innerText = `♪ ${scene.bgm}`;
       AudioEngine.setBGM(scene.bgm);
     } else {
-      document.getElementById('bgm-label').innerText = `♪ none`;
       AudioEngine.setBGM(null);
     }
     
@@ -2086,8 +2111,17 @@ document.getElementById('btn-start').onclick = () => {
 
 document.getElementById('mute-btn').onclick = () => {
   AudioEngine.toggleMute();
-  document.getElementById('mute-btn').innerText = state.sfxEnabled ? '♪ ON' : '♪ OFF';
+  document.getElementById('mute-btn').innerText = state.sfxEnabled ? '♪ Music: ON' : '♪ Music: OFF';
 };
+
+document.getElementById('btn-about').onclick = () => {
+  document.getElementById('about-modal').style.display = 'block';
+};
+if(document.getElementById('btn-close-about')){
+  document.getElementById('btn-close-about').onclick = () => {
+    document.getElementById('about-modal').style.display = 'none';
+  };
+}
 
 resizeGame();
 

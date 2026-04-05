@@ -11,9 +11,7 @@ const state = {
 // AUDIO
 const AudioEngine = {
   ctx: null,
-  bgmTimeout: null,
-  currentBGMName: null,
-  bgmOscillators: [],
+  bgAudio: null,
   init() {
     if (!this.ctx) {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -21,8 +19,22 @@ const AudioEngine = {
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
+    if (!this.bgAudio) {
+      this.bgAudio = new Audio('Gentle_Breeze_Vedika.mp3');
+      this.bgAudio.loop = true;
+      this.bgAudio.volume = 0.3;
+      this.bgAudio.onerror = () => {
+        if (!this.bgAudio.src.includes('wikimedia')) {
+          this.bgAudio.src = 'https://upload.wikimedia.org/wikipedia/commons/3/36/Gymnopedie_No_1.ogg';
+          if (state.sfxEnabled) this.bgAudio.play().catch(()=>{});
+        }
+      };
+      if (state.sfxEnabled && scenes[state.currentScene].bgm) {
+        this.bgAudio.play().catch(()=>{});
+      }
+    }
   },
-  playMelody(notes, isBgm = false) {
+  playMelody(notes) {
     if (!this.ctx) return 0;
     let time = this.ctx.currentTime;
     let totalDur = 0;
@@ -33,14 +45,12 @@ const AudioEngine = {
       const gain = this.ctx.createGain();
       osc.connect(gain);
       gain.connect(this.ctx.destination);
-      osc.type = isBgm ? 'triangle' : 'square';
+      osc.type = 'square';
       osc.frequency.value = freq;
-      const vol = isBgm ? 0.012 : 0.04;
-      gain.gain.setValueAtTime(vol, time);
+      gain.gain.setValueAtTime(0.04, time);
       gain.gain.exponentialRampToValueAtTime(0.001, time + dur - 0.01);
       osc.start(time);
       osc.stop(time + dur);
-      if (isBgm) this.bgmOscillators.push(osc);
       time += dur;
     });
     return totalDur;
@@ -52,38 +62,25 @@ const AudioEngine = {
       click:    [[880, 0.02]],
       sparkle:  [[1568, 0.05], [1760, 0.05], [2093, 0.1]],
     };
-    if (sfx[type]) this.playMelody(sfx[type], false);
+    if (sfx[type]) this.playMelody(sfx[type]);
   },
   setBGM(name) {
-    if (this.currentBGMName === name) return;
-    this.currentBGMName = name;
-    this.stopBGM();
     if (name && state.sfxEnabled) {
-      this.loopBGM(name);
+      if (this.bgAudio && this.bgAudio.paused) {
+        this.bgAudio.play().catch(()=>{});
+      }
+    } else if (!name) {
+      if (this.bgAudio) this.bgAudio.pause();
     }
-  },
-  loopBGM(name) {
-    if (this.currentBGMName !== name || !state.sfxEnabled) return;
-    const notes = BGM[name];
-    if (!notes) return;
-    const dur = this.playMelody(notes, true);
-    this.bgmTimeout = setTimeout(() => {
-      this.bgmOscillators = [];
-      this.loopBGM(name);
-    }, dur * 1000);
-  },
-  stopBGM() {
-    clearTimeout(this.bgmTimeout);
-    this.bgmTimeout = null;
-    this.bgmOscillators.forEach(o => { try{o.stop()}catch(e){} });
-    this.bgmOscillators = [];
   },
   toggleMute() {
     state.sfxEnabled = !state.sfxEnabled;
     if (!state.sfxEnabled) {
-      this.stopBGM();
-    } else if (this.currentBGMName) {
-      this.loopBGM(this.currentBGMName);
+      if (this.bgAudio) this.bgAudio.pause();
+    } else {
+      if (this.bgAudio && scenes[state.currentScene].bgm) {
+        this.bgAudio.play().catch(()=>{});
+      }
     }
   }
 };
@@ -616,10 +613,8 @@ function goToScene(sceneId) {
     updateCharacter('char-right', scene.charRight);
     
     if (scene.bgm) {
-      document.getElementById('bgm-label').innerText = `♪ ${scene.bgm}`;
       AudioEngine.setBGM(scene.bgm);
     } else {
-      document.getElementById('bgm-label').innerText = `♪ none`;
       AudioEngine.setBGM(null);
     }
     
@@ -713,7 +708,16 @@ document.getElementById('btn-start').onclick = () => {
 
 document.getElementById('mute-btn').onclick = () => {
   AudioEngine.toggleMute();
-  document.getElementById('mute-btn').innerText = state.sfxEnabled ? '♪ ON' : '♪ OFF';
+  document.getElementById('mute-btn').innerText = state.sfxEnabled ? '♪ Music: ON' : '♪ Music: OFF';
 };
+
+document.getElementById('btn-about').onclick = () => {
+  document.getElementById('about-modal').style.display = 'block';
+};
+if(document.getElementById('btn-close-about')){
+  document.getElementById('btn-close-about').onclick = () => {
+    document.getElementById('about-modal').style.display = 'none';
+  };
+}
 
 resizeGame();
